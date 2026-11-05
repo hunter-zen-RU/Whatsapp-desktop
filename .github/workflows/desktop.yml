@@ -1,0 +1,107 @@
+name: Desktop Build
+
+# A separate lane from the backend/dashboard CI: packages the Electron desktop app for Linux and
+# Windows. Runs on desktop-relevant changes and can be dispatched manually to produce artifacts.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'src/**'
+      - 'dashboard/**'
+      - 'package.json'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'src/**'
+      - 'dashboard/**'
+      - 'package.json'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '22'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, windows]
+        include:
+          - os: linux
+            runs-on: ubuntu-latest
+            build-args: --linux AppImage deb
+            artifacts: |
+              desktop/release/*.AppImage
+              desktop/release/*.deb
+          - os: windows
+            runs-on: windows-latest
+            build-args: --win nsis portable
+            artifacts: |
+              desktop/release/*.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # Root install: backend deps + the pinned puppeteer Chromium (the gateway's default engine is
+      # whatsapp-web.js, so a browser must exist in the staged node_modules the desktop copies).
+      - name: Install gateway dependencies (repo root)
+        run: npm ci
+
+      - name: Build backend + dashboard
+        run: npm run build:all
+
+      # Desktop deps install Electron itself; cached by the electron-builder install cache below.
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # better-sqlite3 / sharp must match Electron's Node ABI, since the gateway is forked with the
+      # Electron binary running as Node (ELECTRON_RUN_AS_NODE).
+      - name: Rebuild native modules for Electron
+        working-directory: desktop
+        run: npm run rebuild
+
+      - name: Compile Electron main + preload
+        working-directory: desktop
+        run: npm run build:main
+
+      # Headless invariants: gateway env contract, loopback port, staged layout, splash/error docs.
+      - name: Test desktop shell logic
+        working-directory: desktop
+        run: npm test
+
+      - name: Stage gateway for packaging
+        working-directory: desktop
+        run: npm run prepare:gateway:prod
+
+      - name: Package (${{ matrix.os }})
+        working-directory: desktop
+        run: npx electron-builder ${{ matrix.build-args }}
+
+      - name: Upload artifacts
+        # Floating tag: the repo pins some actions by SHA but upload-artifact is not pinned there yet.
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwa-desktop-${{ matrix.os }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error

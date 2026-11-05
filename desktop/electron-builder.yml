@@ -1,0 +1,77 @@
+# electron-builder configuration for OpenWA Desktop (Linux + Windows).
+# The compiled gateway (backend dist + bundled dashboard + its runtime node_modules) is staged by
+# scripts/prepare-gateway.mjs into ./dist-gateway and shipped as an EXTRA RESOURCE (outside the
+# asar). Keeping it outside the archive means native modules (better-sqlite3, sharp) load from a
+# real path with no asarUnpack gymnastics, and the gateway child process is forked from there.
+
+appId: com.openwa.desktop
+productName: OpenWA
+copyright: Copyright (c) OpenWA Contributors — MIT
+
+directories:
+  output: release
+  buildResources: build
+
+# App code that goes into the asar: only the Electron shell. The gateway is an extra resource.
+files:
+  - dist-electron/**/*
+  - package.json
+
+extraResources:
+  - from: dist-gateway
+    to: gateway
+
+asar: true
+
+# ---------------------------------------------------------------------------
+# Linux: AppImage (portable) + deb (Debian/Ubuntu)
+# ---------------------------------------------------------------------------
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  maintainer: OpenWA Contributors
+  # Tray icon for XDG; electron-builder resolves build/icon.png at 16..512.
+  synopsis: OpenWA WhatsApp API Gateway desktop
+  mimeTypes:
+    - x-scheme-handler/openwa
+  # Drop a real 512x512 build/icon.png in place and uncomment to brand the package.
+  # icon: build/icon.png
+
+appImage:
+  artifactName: OpenWA-${version}-${arch}.AppImage
+
+deb:
+  artifactName: openwa-desktop_${version}_${arch}.deb
+
+# ---------------------------------------------------------------------------
+# Windows: NSIS installer (per-user default) + portable exe
+# ---------------------------------------------------------------------------
+win:
+  target:
+    - nsis
+    - portable
+  # Drop a real 256x256 build/icon.ico in place and uncomment to brand the installer.
+  # icon: build/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  artifactName: OpenWA-Setup-${version}.exe
+
+portable:
+  artifactName: OpenWA-Portable-${version}.exe
+
+# ---------------------------------------------------------------------------
+# Auto-update + signing are staged follow-ups (see plan). Left inert here.
+# ---------------------------------------------------------------------------
+# publish:
+#   provider: github
+#   owner: rmyndharis
+#   repo: OpenWA
+# win.signtoolOptions:
+#   certificateFile: ...
+#   certificatePassword: ...

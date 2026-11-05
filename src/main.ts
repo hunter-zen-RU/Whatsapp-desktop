@@ -256,7 +256,11 @@ async function bootstrap() {
   );
 
   const port = process.env.PORT || 2785;
-  await app.listen(port);
+  // BIND_HOST is optional and defaults to Node's own behaviour (all interfaces) so existing Docker /
+  // bare-metal deployments are unchanged. The desktop shell sets it to 127.0.0.1 to keep the local
+  // gateway off the LAN.
+  const bindHost = process.env.BIND_HOST?.trim();
+  await (bindHost ? app.listen(port, bindHost) : app.listen(port));
 
   // Advertise the configured public URL, matching the AuthService banner (auth.service.ts). A bare
   // `localhost` literal here contradicted that banner and read as "the UI is pinned to localhost",
